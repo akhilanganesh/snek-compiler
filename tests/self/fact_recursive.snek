@@ -1,0 +1,8 @@
+(fun (fact n)
+  (if 
+    (<= n 1)
+    1
+    (* n (fact (sub1 n)) )
+  )
+)
+(fact input)

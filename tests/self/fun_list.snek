@@ -1,0 +1,14 @@
+(fun (printi n m)
+    (let ((diff (- m n)))
+        (loop
+            (if (>= n m)
+                (break diff)
+                (block
+                    (set! n (add1 n))
+                )
+            )
+        )
+    )
+)
+
+(printi 3 input)
