@@ -60,6 +60,7 @@ throw_error_align:
   add rsp, 8
 {}
 our_code_starts_here:
+  mov r15, rsi
 {}
   ret
 ", functions, result);

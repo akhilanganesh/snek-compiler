@@ -6,7 +6,7 @@
 
 use crate::types::*;
 
-use std::fmt;
+// use std::fmt;
 use std::collections::HashSet;
 
 /// limit to Snek integers (2^62)
@@ -58,24 +58,24 @@ lazy_static! {
     };
 }
 
-impl fmt::Display for Reg {
-    /// Display method for Reg (registers)
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Reg::RAX => write!(f, "rax"),
-            Reg::RBX => write!(f, "rbx"),
-            Reg::RSP => write!(f, "rsp"),
-            Reg::RDI => write!(f, "rdi"),
-        }
-    }
-}
+// impl fmt::Display for Reg {
+//     /// Display method for Reg (registers)
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {\
+//         match self {
+//             Reg::RAX => write!(f, "rax"),
+//             Reg::RBX => write!(f, "rbx"),
+//             Reg::RSP => write!(f, "rsp"),
+//             Reg::RDI => write!(f, "rdi"),
+//         }
+//     }
+// }
 
 impl LocPtr {
     /// Converts location pointer to Val (asm value)
     pub fn value(&self) -> Val {
         match self {
             LocPtr::LReg(reg) => Val::Reg(*reg),
-            LocPtr::LStack(offset) => Val::RegOffset(Reg::RSP, *offset),
+            LocPtr::LStack(offset) => Val::MemPtr(Reg::RSP, *offset),
         }
     }
 }
@@ -162,17 +162,17 @@ pub fn instr_to_str(i: &Instr) -> String {
 /// Converts a Val (asm value) into an asm String representation
 pub fn val_to_str(v: &Val) -> String {
     match v {
-        Val::Reg(reg) => reg.to_string(),  // register name
+        Val::Reg(reg) => reg.to_string().to_lowercase(),  // register name
         Val::Imm(imm) => {
             return imm.to_string();        // immediate integer to string
         },
-        Val::RegOffset(reg, imm) => {      // qword [reg +- imm]
+        Val::MemPtr(reg, imm) => {      // qword [reg +- imm]
             if *imm < 0 {
-                format!("qword [{} - {}]", reg.to_string(), -*imm)
+                format!("qword [{} - {}]", reg.to_string().to_lowercase(), -*imm)
             } else if *imm > 0 {
-                format!("qword [{} + {imm}]", reg.to_string())
+                format!("qword [{} + {imm}]", reg.to_string().to_lowercase())
             } else {
-                format!("qword [{}]", reg.to_string())
+                format!("qword [{}]", reg.to_string().to_lowercase())
             }
         },
         Val::Label(s) => s.to_string(),    // label

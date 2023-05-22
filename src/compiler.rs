@@ -22,7 +22,30 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // Boolean value representation into rax
         Expr::Boolean(b) => {
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(if *b { TRUE_VAL } else { FALSE_VAL })));
-        }
+        },
+        // Tuple value representation into rax
+        Expr::Tuple(vec) => {
+            // Allocate tuple on the heap
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::R15)));
+            instrs.push(Instr::Add(Val::Reg(Reg::R15), Val::Imm(((vec.len() as i32+1)*WORD_SIZE).into())));
+
+            // Evaluate and place elements in tuple
+            let mut offset = 0;
+            // TODO: Check the len to see if it fits in i64 (doesn't become negative after)
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RBX, offset*WORD_SIZE), Val::Imm(vec.len() as i64)));
+            offset += 1;
+            for expr in vec {
+                instrs.append(&mut compile_expr(expr, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+                instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                instrs.push(Instr::Mov(Val::MemPtr(Reg::RBX, offset*WORD_SIZE), Val::Reg(Reg::RAX)));
+                offset += 1;
+            }
+            
+            // Return tuple representation
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
+        },
         // "input" identifier value in rdi moved to rax
         Expr::Id(s) if s == "input" => {
             if ctxt.in_func {
@@ -93,7 +116,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         Expr::BinOp(op, e1, e2) => {
             // Compile inner expression 2 and push to stack
             instrs.append(&mut compile_expr(e2, ctxt, lbl));
-            instrs.push(Instr::Mov(Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
             // Compile inner expression 1 into rax
             instrs.append(&mut compile_expr(e1, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
             
@@ -101,7 +124,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             if op.get_type() == Op2Type::Equality {
                 // Type check instructions with mismatch check
                 instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-                instrs.push(Instr::Xor(Val::Reg(Reg::RBX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                instrs.push(Instr::Xor(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                 instrs.append(&mut check_msmx(LocPtr::LReg(Reg::RBX)));
             // Otherwise the binary operation is arithmetic, and 
             // we check if both types are numbers
@@ -114,51 +137,51 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             match op {
                 // +
                 Op2::Plus  => { 
-                    instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.append(&mut check_of()); // Check for overflow
                 },
                 // -
                 Op2::Minus => { 
-                    instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.append(&mut check_of()); // Check for overflow
                 },
                 // *
                 Op2::Times => {
                     instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.append(&mut check_of()); // Check for overflow
                 },
                 // <, less than
                 Op2::Lt => {
-                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovl(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // >, greater than
                 Op2::Gt => {
-                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovg(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // <=, less than or equal to
                 Op2::Lte => {
-                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovle(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 }, 
                 // >=, greater than or equal to
                 Op2::Gte => {
-                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovge(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 }, 
                 // =, equal to
                 Op2::Equal => {
-                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
+                    instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
@@ -227,6 +250,71 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             } else {
                 panic!("Unbound variable identifier {}", s);
             }
+        },
+        // Set a tuple's element at a certain index to a new expression value
+        Expr::TSet(e_tuple, e_index, e_value) => {
+            // Evaluate index
+            instrs.append(&mut compile_expr(e_index, ctxt, lbl));
+
+            // Perform type check for rax (index)
+
+            // Convert index to correct iterator and store on stack
+            instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::Imm((WORD_SIZE/2).into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
+
+            // Evaluate value expression and store on stack
+            instrs.append(&mut compile_expr(e_value, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE), Val::Reg(Reg::RAX)));
+
+            // Store heap pointer to tuple in rax
+            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 2, ..ctxt }, lbl));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
+            
+            // Perform type check for rax (tuple)
+
+            // Get heap pointer from tuple representation
+            instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
+
+            // perform out-of-bounds check (>= len)
+
+            // shift memory pointer
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+
+            // update value
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE)));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RAX, 0), Val::Reg(Reg::RCX)));
+
+            // move tuple value representation to rax
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
+        },
+        // Get a tuple's element at a certain index
+        Expr::TGet(e_tuple, e_index) => {
+            // Evaluate index
+            instrs.append(&mut compile_expr(e_index, ctxt, lbl));
+
+            // Perform type check for rax (index)
+
+            // Convert index to correct iterator and store on stack
+            instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::Imm((WORD_SIZE/2).into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
+
+            // Store tuple in rax
+            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+
+            // Perform type check for rax (tuple)
+
+            // Get heap pointer from tuple representation
+            instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
+
+            // perform out-of-bounds check (>= len)
+
+            // shift memory pointer
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+
+            // get value
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RAX, 0)));
         },
         // A block of expressions each evaluated on its own, with the
         // value of the last expression moved to rax

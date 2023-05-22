@@ -11,20 +11,26 @@ and function calls.
 <defn> := (fun (<fname> <identifier>*) <expr>)
 <expr> :=
   | <integer>
-  | true | false
-  | (tuple <expr>+)
+  | <boolean>
+  | <tuple>
   | input
   | <identifier>
   | (let (<binding>+) <expr>)
   | (<op1> <expr>)
   | (<op2> <expr> <expr>)
-  | (set! <identifier> <expr>)
   | (if <expr> <expr> <expr>)
-  | (block <expr>+)
   | (loop <expr>)
   | (break <expr>)
-  | (get <tuple> <integer>)
+  | (set! <identifier> <expr>)
+  | (tset <expr:tuple> <expr:integer> <expr>)
+  | (tget <expr:tuple> <expr:integer>)
+  | (block <expr>+)
   | (<fname> <expr>*)
+
+<integer>    := (-)?[0-9]*
+<boolean>    := true | false
+<tuple>      := (tuple <expr>*)
+<expr:[value]>       :=       <expr> that holds type [value]
 
 <op1> := add1 | sub1 | isnum | isbool | print
 <op2> := + | - | * | < | > | >= | <= | =
@@ -32,7 +38,6 @@ and function calls.
 <fname>      := [a-zA-z][a-zA-Z0-9]*
 <identifier> := [a-zA-z][a-zA-Z0-9]*
 <binding>    := (<identifier> <expr>)
-<tuple>      := (tuple <expr>+) | <identifier>
 ```
 
 Note that integers must be within the bounds $-2^{62}$ to $2^{62} - 1$. `input` refers to an optional
@@ -59,8 +64,9 @@ enum Expr {
     Loop(Box<Expr>),
     Break(Box<Expr>),
     Set(String, Box<Expr>),
+    TSet(Box<Expr>, Box<Expr>, Box<Expr>),
+    TGet(Box<Expr>, Box<Expr>),
     Block(Vec<Expr>),
-    Get(Box<Expr>, i64),
     Call(String, Vec<Expr>),
 }
 
@@ -80,9 +86,9 @@ struct Program {
 
 Values, such as integers, booleans, etc., are represented in the Snek runtime environment with two parts: a code and a tag. The tag is on the less significant part of the byte (includes LSB). The value representations are as follows. Note that the code reflects a decimal representation of the actual binary code part.
 
-Value        | Code | Tag Size (in bits) | Tag
--------------|:----:|:--------:|------:
-integer      |  n   | 1 bit    | 0
-tuple        |  01  | 2 bits   | 01
-true         |  1   | 3 bits   | 11
-false        |  0   | 3 bits   | 11
+Value        | Tag Size | Code | Tag
+-------------|:--------:|:----:|------:
+integer      | 1 bit    |  n   | 0
+tuple        | 2 bits   | addr | 01
+true         | 2 bits   |  1   | 11
+false        | 2 bits   |  0   | 11

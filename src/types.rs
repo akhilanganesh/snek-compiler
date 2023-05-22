@@ -11,17 +11,20 @@ use im::HashMap;
 pub enum Val {
     Reg(Reg),
     Imm(i64),
-    RegOffset(Reg, i32),
+    MemPtr(Reg, i32),
     Label(String),
 }
 
 /// Registers: rax, rbx, rsp
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq)]
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, strum_macros::Display)]
 pub enum Reg {
     RAX,    // main register rax
-    RBX,
+    RBX,    // secondary register rbx
+    RCX,    // tertiary register rcx
+    // RDX,    // quarternary register rdx
     RSP,    // stack pointer
     RDI,    // stores first integer argument (input)
+    R15,    // r15 stores the current heap pointer
 }
 
 /// Instruction Types: mov, add, sub, imul
@@ -96,6 +99,7 @@ pub enum Op2 {
 pub enum Expr {
     Number(i64),
     Boolean(bool),
+    Tuple(Vec<Expr>),
     Id(String),
     Let(Vec<(String, Expr)>, Box<Expr>),
     UnOp(Op1, Box<Expr>),
@@ -104,6 +108,8 @@ pub enum Expr {
     Loop(Box<Expr>),
     Break(Box<Expr>),
     Set(String, Box<Expr>),
+    TSet(Box<Expr>, Box<Expr>, Box<Expr>),
+    TGet(Box<Expr>, Box<Expr>),
     Block(Vec<Expr>),
     Call(String, Vec<Expr>),
 }

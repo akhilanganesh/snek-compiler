@@ -169,6 +169,14 @@ pub fn parse_expr(s: &Sexp, fmap: &HashSet<String>) -> Expr {
                 [Sexp::Atom(S(break_word)), e] if break_word == "break" => {
                     Expr::Break(Box::new(parse_expr(e, fmap)))
                 },
+                // Match tuple value
+                [Sexp::Atom(S(tuple_word)), s_exprs @ ..] if tuple_word == "tuple" => {
+                    let mut exprs = Vec::new();
+                    for e in s_exprs {
+                        exprs.push(parse_expr(e, fmap));
+                    }
+                    Expr::Tuple(exprs)
+                },
                 // Match block
                 [Sexp::Atom(S(block_word)), s_exprs @ ..] if block_word == "block" => {
                     if s_exprs.is_empty() {
@@ -181,14 +189,10 @@ pub fn parse_expr(s: &Sexp, fmap: &HashSet<String>) -> Expr {
                         Expr::Block(exprs)
                     }
                 },
-                // Match function call w/o arguments
-                [Sexp::Atom(S(func))] if fmap.contains(func) => {
-                    Expr::Call(func.clone(), Vec::new())
-                },
                 // Match function call with arguments
-                [Sexp::Atom(S(func)), sexprs @ ..] if fmap.contains(func) => {
+                [Sexp::Atom(S(func)), s_exprs @ ..] if fmap.contains(func) => {
                     let mut exprs = Vec::new();
-                    for e in sexprs {
+                    for e in s_exprs {
                         exprs.push(parse_expr(e, fmap));
                     }
                     Expr::Call(func.clone(), exprs)
@@ -238,7 +242,7 @@ pub fn parse_expr(s: &Sexp, fmap: &HashSet<String>) -> Expr {
                         Box::new(parse_expr(e2, fmap)), 
                         Box::new(parse_expr(e3, fmap)))
                 },
-                // Match set!
+                // Match set! for identifiers
                 [Sexp::Atom(S(set_word)), Sexp::Atom(S(var)), e] if set_word == "set!" => {
                     if !is_valid_identifier(var) {
                         panic!("Invalid identifier naming conventions");
@@ -247,6 +251,17 @@ pub fn parse_expr(s: &Sexp, fmap: &HashSet<String>) -> Expr {
                         panic!("Invalid identifier - keyword");
                     }
                     Expr::Set(var.to_string(), Box::new(parse_expr(e, fmap)))
+                },
+                // Match tset for tuple elements
+                [Sexp::Atom(S(tset_word)), e_tuple, e_index, e_value] if tset_word == "tset" => {
+                    Expr::TSet(Box::new(parse_expr(e_tuple, fmap)), 
+                            Box::new(parse_expr(e_index, fmap)),
+                            Box::new(parse_expr(e_value,fmap)))
+                },
+                // Match tget for tuple elements
+                [Sexp::Atom(S(tget_word)), e_tuple, e_index] if tget_word == "tget" => {
+                    Expr::TGet(Box::new(parse_expr(e_tuple, fmap)), 
+                            Box::new(parse_expr(e_index, fmap)))
                 },
                 // Match binary operations
                 [Sexp::Atom(S(op)), e1, e2] => {
