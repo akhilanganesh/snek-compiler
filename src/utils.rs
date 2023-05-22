@@ -10,7 +10,7 @@ use std::fmt;
 use std::collections::HashSet;
 
 /// limit to Snek integers (2^62)
-pub static LIM : i64 = 4611686018427387904;
+pub const LIM : i64 = 4611686018427387904;
 
 /// word size for x86
 pub const WORD_SIZE : i32 = 8i32;
@@ -20,6 +20,12 @@ pub const MSMX_ERRCODE : i64 = 7; // msmx = mismatch
 
 /// overflow error code
 pub const OF_ERRCODE : i64 = 8;
+
+/// true  value representation (code + tag)
+pub const TRUE_VAL  : i64 = 7;
+
+/// false value representation (code + tag)
+pub const FALSE_VAL : i64 = 3;
 
 lazy_static! {
     /// reserved words or keywords

@@ -1,8 +1,26 @@
+/*
+    start.rs
+
+    Compiles a Snek assembly file into a runtime Snek binary.
+*/
 use std::env;
 
-static LIM : i64 = 4611686018427387904;
+/// mismatch error code
+const MSMX_ERRCODE : i64 = 7; // msmx = mismatch
 
-/// Links the "our_code_starts_here" function to the C binary
+/// overflow error code
+const OF_ERRCODE : i64 = 8;
+
+/// true  value representation (code + tag)
+const TRUE_VAL  : i64 = 7;
+
+/// false value representation (code + tag)
+const FALSE_VAL : i64 = 3;
+
+/// limit to Snek integers (2^62)
+const LIM : i64 = 4611686018427387904;
+
+// Links the "our_code_starts_here" function to the C binary
 #[link(name = "our_code")]
 extern "C" {
     // The \x01 here is an undocumented feature of LLVM that ensures
@@ -18,8 +36,8 @@ extern "C" {
 pub extern "C" fn snek_error(errcode: i64) {
     // Print error message according to error code
     match errcode {
-        7 => { eprintln!("Operation with invalid argument(s)"); }
-        8 => { eprintln!("Operation caused arithmetic overflow"); }
+        MSMX_ERRCODE => { eprintln!("Operation with invalid argument(s)"); }
+        OF_ERRCODE => { eprintln!("Operation caused arithmetic overflow"); }
         _ => { eprintln!("An error occurred {errcode}"); }
     }
 
@@ -32,9 +50,9 @@ pub extern "C" fn snek_error(errcode: i64) {
 #[export_name = "\x01snek_print"]
 pub extern "C" fn snek_print(val: u64) {
     // Match the internal value representation type
-    match val {
-        1 => println!("false"),
-        3 => println!("true"),
+    match val as i64 {
+        FALSE_VAL => println!("false"),
+        TRUE_VAL => println!("true"),
         _ => println!("{}", (val as i64) >> 1),
     }
 }
@@ -43,8 +61,8 @@ pub extern "C" fn snek_print(val: u64) {
 fn parse_input(input: &str) -> u64 {
     // Match input to the various possible String representations
     match input {
-        "true" => 3u64,     // true  => 3
-        "false" => 1u64,    // false => 1
+        "true" => TRUE_VAL as u64,     // true  => true value representation
+        "false" => FALSE_VAL as u64,    // false => false value representation
         _ => {
             // If number, check if within bounds
             // Multiply by 2 to get internal value representation

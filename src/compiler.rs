@@ -21,7 +21,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         Expr::Number(n) => { instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm((*n)*2))); },
         // Boolean value representation into rax
         Expr::Boolean(b) => {
-            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(if *b { 3 } else { 1 })));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(if *b { TRUE_VAL } else { FALSE_VAL })));
         }
         // "input" identifier value in rdi moved to rax
         Expr::Id(s) if s == "input" => {
@@ -64,15 +64,15 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
                 // isnum (whether it is an integer or not)
                 Op1::IsNum => { 
                     instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
                     instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // isbool (whether it is a boolean or not)
                 Op1::IsBool => {
                     instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // print (calls snek_print using C calling conventions)
@@ -131,36 +131,36 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
                 // <, less than
                 Op2::Lt => {
                     instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovl(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // >, greater than
                 Op2::Gt => {
                     instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovg(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
                 // <=, less than or equal to
                 Op2::Lte => {
                     instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovle(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 }, 
                 // >=, greater than or equal to
                 Op2::Gte => {
                     instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMovge(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 }, 
                 // =, equal to
                 Op2::Equal => {
                     instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(1)));
-                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(3)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(TRUE_VAL)));
                     instrs.push(Instr::CMove(Val::Reg(Reg::RAX), Val::Reg(Reg::RBX)));
                 },
             }
@@ -190,7 +190,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             let else_lbl = format!("else_{}", block_num);
             let endif_lbl = format!("endif_{}", block_num);
             instrs.append(&mut compile_expr(cond_e, ctxt, lbl));
-            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(1)));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
             instrs.push(Instr::Je(Val::Label(else_lbl.clone())));
             instrs.append(&mut compile_expr(e1, ctxt, lbl));
             instrs.push(Instr::Jmp(Val::Label(endif_lbl.clone())));

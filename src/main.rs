@@ -5,7 +5,6 @@
     assembly code template. This is written out to a .s file.
 */
 
-
 mod types;
 mod utils;
 mod parser;

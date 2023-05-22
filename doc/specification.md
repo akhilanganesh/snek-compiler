@@ -12,6 +12,7 @@ and function calls.
 <expr> :=
   | <integer>
   | true | false
+  | (tuple <expr>+)
   | input
   | <identifier>
   | (let (<binding>+) <expr>)
@@ -22,6 +23,7 @@ and function calls.
   | (block <expr>+)
   | (loop <expr>)
   | (break <expr>)
+  | (get <tuple> <integer>)
   | (<fname> <expr>*)
 
 <op1> := add1 | sub1 | isnum | isbool | print
@@ -30,6 +32,7 @@ and function calls.
 <fname>      := [a-zA-z][a-zA-Z0-9]*
 <identifier> := [a-zA-z][a-zA-Z0-9]*
 <binding>    := (<identifier> <expr>)
+<tuple>      := (tuple <expr>+) | <identifier>
 ```
 
 Note that integers must be within the bounds $-2^{62}$ to $2^{62} - 1$. `input` refers to an optional
@@ -47,6 +50,7 @@ enum Op2 { Plus, Minus, Times, Equal, Gt, Gte, Lt, Lte, }
 enum Expr {
     Number(i64),
     Boolean(bool),
+    Tuple(Vec<Expr>),
     Id(String),
     Let(Vec<(String, Expr)>, Box<Expr>),
     UnOp(Op1, Box<Expr>),
@@ -56,6 +60,7 @@ enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
+    Get(Box<Expr>, i64),
     Call(String, Vec<Expr>),
 }
 
@@ -78,5 +83,6 @@ Values, such as integers, booleans, etc., are represented in the Snek runtime en
 Value        | Code | Tag Size (in bits) | Tag
 -------------|:----:|:--------:|------:
 integer      |  n   | 1 bit    | 0
-true         |  1   | 1 bit    | 1
-false        |  0   | 1 bit    | 1
+tuple        |  01  | 2 bits   | 01
+true         |  1   | 3 bits   | 11
+false        |  0   | 3 bits   | 11
