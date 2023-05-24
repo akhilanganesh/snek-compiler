@@ -111,6 +111,10 @@ tuple        | 2 bits   | addr | 01
 true         | 2 bits   |  1   | 11
 false        | 2 bits   |  0   | 11
 
+## Heap-Allocated Data Diagram
+
+This diagram will be included as a `.jpg` on the repository.
+
 
 ## Testing
 
