@@ -1,0 +1,15 @@
+(block
+    (let ((t1 (tuple 1 2 3)) (t2 (tinit 5 false)) (t3 (tuple)))
+        (block
+            (print t1)
+            (print t2)
+            (print t3)
+
+            (print (tset t2 0 true))
+            (print (tset t2 1 1))
+            (print (tget t1 1))
+        )
+    )
+
+    (tinit 0 0)
+)

@@ -1,0 +1,5 @@
+(block
+    (print (= (tuple true 4 false) 4))
+    (print (+ (tuple) 4))
+    (print (add1 (tinit 0 0)))
+)

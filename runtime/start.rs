@@ -12,6 +12,9 @@ const MSMX_ERRCODE : i64 = 7; // msmx = mismatch
 /// overflow error code
 const OF_ERRCODE : i64 = 8;
 
+/// bounds error code
+const BND_ERRCODE : i64 = 9;
+
 /// true  value representation (code + tag)
 const TRUE_VAL  : i64 = 7;
 
@@ -43,6 +46,7 @@ pub extern "C" fn snek_error(errcode: i64) {
     match errcode {
         MSMX_ERRCODE => { eprintln!("Operation with invalid argument(s)"); }
         OF_ERRCODE => { eprintln!("Operation caused arithmetic overflow"); }
+        BND_ERRCODE => { eprintln!("Operation with index out of bounds"); }
         _ => { eprintln!("An error occurred {errcode}"); }
     }
 
@@ -77,7 +81,7 @@ pub fn snek_string(val: u64) -> String {
                 output += &snek_string(unsafe { *ptr.offset((len).try_into().unwrap()) });
             }
             
-            format!("[{output}]")
+            format!("({output})")
         }
         _ => format!("{}", (val as i64) >> 1),
     }

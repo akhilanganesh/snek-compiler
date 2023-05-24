@@ -1,0 +1,3 @@
+(let ( (t (tinit 5 (tuple 5 3 false 3))) )
+    (= (tget t 0) (tget t 3))
+)

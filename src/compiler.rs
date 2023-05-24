@@ -68,7 +68,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
 
             // If arithmetic, check for mismatch error
             if op.get_type() == Op1Type::Arithmetic {
-                instrs.append(&mut check_msmx(LocPtr::LReg(Reg::RAX)));
+                instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
             }
 
             // Match unary operator and perform relevant instructions
@@ -123,14 +123,14 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             // If equality operation, compare types
             if op.get_type() == Op2Type::Equality {
                 // Type check instructions with mismatch check
-                instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
-                instrs.push(Instr::Xor(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
-                instrs.append(&mut check_msmx(LocPtr::LReg(Reg::RBX)));
+                instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), 
+                        Some(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)), ValCheck::Equality, lbl));
             // Otherwise the binary operation is arithmetic, and 
             // we check if both types are numbers
             } else {
-                instrs.append(&mut check_msmx(LocPtr::LReg(Reg::RAX)));
-                instrs.append(&mut check_msmx(LocPtr::LStack(-ctxt.si*WORD_SIZE)));
+                instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
+                instrs.append(&mut check_msmx(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), None,
+                        ValCheck::Integer, lbl));
             }
 
             // Match binary operator
@@ -251,35 +251,88 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
                 panic!("Unbound variable identifier {}", s);
             }
         },
+        // Initialize a tuple with a specific size and fill with default value
+        Expr::TInit(e_length, e_value) => {
+            // Initialize labels
+            let loop_lbl = format!("tinit_loop_{}", lbl);
+            *lbl += 1;
+
+            // Compute default value
+            instrs.append(&mut compile_expr(e_value, ctxt, lbl));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
+
+            // Evaluate length expression
+            instrs.append(&mut compile_expr(e_length, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+
+            // Type check length
+            instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
+
+            // Divide length by 2 to remove the value representation
+            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
+
+            // Bounds check length (>= 0)
+            instrs.append(&mut check_bnd(Val::Reg(Reg::RAX), Val::Imm(0), true, true));
+
+            // Allocate tuple on the heap
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE), Val::Reg(Reg::R15)));
+
+            // Push length word onto heap
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::R15, 0), Val::Reg(Reg::RAX)));
+            
+            // Convert value representation of length into total byte size (val/2 + 1)*8
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
+            instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE.into())));            
+
+            // Construct loop
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::R15)));
+            instrs.push(Instr::Add(Val::Reg(Reg::R15), Val::Reg(Reg::RAX))); // add length to r15
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::Label(Val::Label(loop_lbl.clone())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RBX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RBX, 0), Val::Reg(Reg::RCX)));
+            instrs.push(Instr::Cmp(Val::Reg(Reg::RBX), Val::Reg(Reg::R15)));
+            instrs.push(Instr::Jle(Val::Label(loop_lbl.clone())));
+            
+            // Return tuple representation
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE)));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(1)));
+        }
         // Set a tuple's element at a certain index to a new expression value
         Expr::TSet(e_tuple, e_index, e_value) => {
             // Evaluate index
             instrs.append(&mut compile_expr(e_index, ctxt, lbl));
 
             // Perform type check for rax (index)
+            instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
 
-            // Convert index to correct iterator and store on stack
-            instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::Imm((WORD_SIZE/2).into())));
-            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE.into())));
+            // Convert index to internal number and store on stack
+            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Evaluate value expression and store on stack
             instrs.append(&mut compile_expr(e_value, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE), Val::Reg(Reg::RAX)));
 
-            // Store heap pointer to tuple in rax
+            // Store tuple in rax
             instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 2, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
             
             // Perform type check for rax (tuple)
+            instrs.append(&mut check_msmx(Val::Reg(Reg::RBX), None, ValCheck::Tuple, lbl));
 
             // Get heap pointer from tuple representation
             instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
 
-            // perform out-of-bounds check (>= len)
+            // perform out-of-bounds check (0<= i < len)
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.append(&mut check_bnd(Val::Reg(Reg::RCX), Val::Imm(0), true, true));
+            instrs.append(&mut check_bnd(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RAX, 0), false, false));
 
             // shift memory pointer
-            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::IMul(Val::Reg(Reg::RCX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RCX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
 
             // update value
             instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE)));
@@ -294,24 +347,31 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             instrs.append(&mut compile_expr(e_index, ctxt, lbl));
 
             // Perform type check for rax (index)
+            instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
 
             // Convert index to correct iterator and store on stack
-            instrs.push(Instr::IMul(Val::Reg(Reg::RAX), Val::Imm((WORD_SIZE/2).into())));
-            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Sar(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Store tuple in rax
             instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
 
             // Perform type check for rax (tuple)
+            instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Tuple, lbl));
 
             // Get heap pointer from tuple representation
             instrs.push(Instr::Sub(Val::Reg(Reg::RAX), Val::Imm(1)));
 
-            // perform out-of-bounds check (>= len)
+            // perform out-of-bounds check (0 <= i < len)
+            instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.append(&mut check_bnd(Val::Reg(Reg::RBX), Val::Imm(0), true, true));
+            instrs.append(&mut check_bnd(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RAX, 0), false, false));
 
             // shift memory pointer
-            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
+            instrs.push(Instr::IMul(Val::Reg(Reg::RCX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RCX), Val::Imm(WORD_SIZE.into())));
+            instrs.push(Instr::Add(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
 
             // get value
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RAX, 0)));

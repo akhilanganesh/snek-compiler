@@ -22,6 +22,7 @@ and function calls.
   | (loop <expr>)
   | (break <expr>)
   | (set! <identifier> <expr>)
+  | (tinit <expr:integer> <expr>)
   | (tset <expr:tuple> <expr:integer> <expr>)
   | (tget <expr:tuple> <expr:integer>)
   | (block <expr>+)

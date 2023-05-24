@@ -1,0 +1,11 @@
+(let ((t (tuple 54 43 32 21 10)))
+    (block
+        (print (tset t -1 0))
+        (print (tset t 5 1))
+        (print (tset t 8 false))
+
+        (print (tget t -1))
+        (print (tget t 5))
+        (print (tget t 8))
+    )
+)

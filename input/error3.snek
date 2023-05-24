@@ -1,0 +1,12 @@
+(block
+    (print (tinit false 0))
+    (print (tget 0 1))
+    (print (tset false 1 2))
+    (print (tget (tuple 1 2 3) false 0))
+    (print (tset (tuple 1 2 3) (tuple 3 2 1)))
+    (print (tinit -1 0))
+
+    (tinit 0)
+    (tset)
+    (tget (tuple 1))
+)

@@ -252,6 +252,11 @@ pub fn parse_expr(s: &Sexp, fmap: &HashSet<String>) -> Expr {
                     }
                     Expr::Set(var.to_string(), Box::new(parse_expr(e, fmap)))
                 },
+                // Match tinit for initializing a tuple
+                [Sexp::Atom(S(tinit_word)), e_length, e_value] if tinit_word == "tinit" => {
+                    Expr::TInit(Box::new(parse_expr(e_length, fmap)),
+                            Box::new(parse_expr(e_value,fmap)))
+                },
                 // Match tset for tuple elements
                 [Sexp::Atom(S(tset_word)), e_tuple, e_index, e_value] if tset_word == "tset" => {
                     Expr::TSet(Box::new(parse_expr(e_tuple, fmap)), 

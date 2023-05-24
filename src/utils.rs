@@ -21,6 +21,9 @@ pub const MSMX_ERRCODE : i64 = 7; // msmx = mismatch
 /// overflow error code
 pub const OF_ERRCODE : i64 = 8;
 
+/// bounds error code
+pub const BND_ERRCODE : i64 = 9;
+
 /// true  value representation (code + tag)
 pub const TRUE_VAL  : i64 = 7;
 
@@ -103,21 +106,92 @@ impl Op2 {
 }
 
 /// Returns instructions that perform a runtime mismatch error check
-pub fn check_msmx(test_loc : LocPtr) -> Vec<Instr> {
+pub fn check_msmx(check : Val, check2_opn : Option<Val>, ctype : ValCheck, lbl : &mut i32) -> Vec<Instr> {
     let mut ret : Vec<Instr> = Vec::new();
-    let err_lbl = "throw_error_align";
-    ret.push(Instr::Test(test_loc.value(), Val::Imm(1)));
-    ret.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(MSMX_ERRCODE)));
-    ret.push(Instr::Jne(Val::Label(format!("{}", err_lbl))));
+    let err_val = Val::Label(format!("throw_error_align"));
+    match ctype {
+        ValCheck::Integer => {
+            ret.push(Instr::Test(check, Val::Imm(1)));
+            ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(MSMX_ERRCODE)));
+            ret.push(Instr::Jne(err_val));
+        },
+        ValCheck::Boolean => {
+            ret.push(Instr::Mov(Val::Reg(Reg::RDX), check));
+            ret.push(Instr::And(Val::Reg(Reg::RDX), Val::Imm(0b11)));
+            ret.push(Instr::Cmp(Val::Reg(Reg::RDX), Val::Imm(0b11)));
+            ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(MSMX_ERRCODE)));
+            ret.push(Instr::Jne(err_val));
+        },
+        ValCheck::Tuple => {
+            ret.push(Instr::Mov(Val::Reg(Reg::RDX), check));
+            ret.push(Instr::And(Val::Reg(Reg::RDX), Val::Imm(0b11)));
+            ret.push(Instr::Cmp(Val::Reg(Reg::RDX), Val::Imm(0b01)));
+            ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(MSMX_ERRCODE)));
+            ret.push(Instr::Jne(err_val));
+        },
+        // for equality, check2 must be Some(value2)
+        ValCheck::Equality => {
+            if let Some(check2) = check2_opn {
+                let int_chk = Val::Label(format!("eqcheck_{}", lbl));
+                let chk_end = Val::Label(format!("check_end_{}", lbl));
+                *lbl += 1;
+
+                // Check if integer
+                ret.push(Instr::Mov(Val::Reg(Reg::RDX), check));
+                ret.push(Instr::Test(Val::Reg(Reg::RDX), Val::Imm(1)));
+                ret.push(Instr::Je(int_chk.clone()));   // if integer, skip alt check
+
+                // Alt check
+                ret.push(Instr::Xor(Val::Reg(Reg::RDX), check2.clone()));
+                ret.push(Instr::And(Val::Reg(Reg::RDX), Val::Imm(0b11)));
+                ret.push(Instr::Cmp(Val::Reg(Reg::RDX), Val::Imm(0)));
+                ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(MSMX_ERRCODE)));
+                ret.push(Instr::Jne(err_val.clone()));
+                ret.push(Instr::Jmp(chk_end.clone()));
+
+                // Int check
+                ret.push(Instr::Label(int_chk));
+                ret.push(Instr::Xor(Val::Reg(Reg::RDX), check2));
+                ret.push(Instr::Test(Val::Reg(Reg::RDX), Val::Imm(1)));
+                ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(MSMX_ERRCODE)));
+                ret.push(Instr::Jne(err_val));
+                
+                // End check
+                ret.push(Instr::Label(chk_end));
+            } else {
+                panic!("No secondary value provided for equality check");
+            }
+        },
+    }
+    
     ret
 }
 
 /// Returns instructions that perform a runtime overflow error check
 pub fn check_of() -> Vec<Instr> {
     let mut ret : Vec<Instr> = Vec::new();
-    let err_lbl = "throw_error_align";
-    ret.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Imm(OF_ERRCODE)));
-    ret.push(Instr::Jo(Val::Label(format!("{}", err_lbl))));
+    let err_val = Val::Label(format!("throw_error_align"));
+    ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(OF_ERRCODE)));
+    ret.push(Instr::Jo(err_val));
+    ret
+}
+
+/// Returns instructions that perform a runtime overflow error check
+// lower, inclusive determine the nature of the validity bound
+// e.g. lower = true, inclusive = true means >= bound is good, < bound is bad
+pub fn check_bnd(check: Val, bound: Val, lower : bool, inclusive: bool) -> Vec<Instr> {
+    let mut ret : Vec<Instr> = Vec::new();
+    let err_val = Val::Label(format!("throw_error_align"));
+    ret.push(Instr::Cmp(check, bound));
+    ret.push(Instr::Mov(Val::Reg(Reg::RDX), Val::Imm(BND_ERRCODE)));
+    ret.push(
+        match (lower, inclusive) {
+            (false, false) => Instr::Jge(err_val),
+            (false, true)  => Instr::Jg(err_val),
+            (true,  false) => Instr::Jle(err_val),
+            (true,  true)  => Instr::Jl(err_val),
+        }
+    );
     ret
 }
 
@@ -146,10 +220,11 @@ pub fn instr_to_str(i: &Instr) -> String {
             Instr::Mov(v1, v2) | Instr::Add(v1, v2) | Instr::Sub(v1, v2) |
             Instr::IMul(v1, v2) | Instr::CMovl(v1, v2) | Instr::CMovg(v1, v2) | 
             Instr::CMovle(v1, v2) | Instr::CMovge(v1, v2) | Instr::CMove(v1, v2) | 
-            Instr::Cmp(v1, v2) | Instr::Test(v1, v2) | //Instr::And(v1, v2) | 
+            Instr::Cmp(v1, v2) | Instr::Test(v1, v2) | Instr::And(v1, v2) | 
             Instr::Xor(v1, v2) | Instr::Sar(v1, v2)
                 => format!("{}, {}", val_to_str(v1), val_to_str(v2)), // _, _
-            Instr::Jmp(v) | Instr::Je(v) | Instr::Jne(v) |
+            Instr::Jmp(v) | Instr::Je(v) | Instr::Jne(v) | 
+            Instr::Jl(v) | Instr::Jle(v) | Instr::Jg(v) | Instr::Jge(v) |
             Instr::Jo(v) | Instr::Push(v) | Instr::Pop(v) | Instr::Call(v)
                 => format!("{}", val_to_str(v)), // _
             Instr::Ret

@@ -55,7 +55,7 @@ extern snek_print
 global our_code_starts_here
 throw_error_align:
   sub rsp, 8
-  mov rdi, rbx
+  mov rdi, rdx
   call snek_error
   add rsp, 8
 {}

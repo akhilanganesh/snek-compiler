@@ -21,7 +21,8 @@ pub enum Reg {
     RAX,    // main register rax
     RBX,    // secondary register rbx
     RCX,    // tertiary register rcx
-    // RDX,    // quarternary register rdx
+    RDX,    // main ERROR CHECKING register
+    // REX,    // secondary error check register
     RSP,    // stack pointer
     RDI,    // stores first integer argument (input)
     R15,    // r15 stores the current heap pointer
@@ -42,12 +43,16 @@ pub enum Instr {
     CMove(Val, Val),
     Cmp(Val, Val),
     Test(Val, Val),
-    // And(Val, Val),
+    And(Val, Val),
     Xor(Val, Val),
     Sar(Val, Val),
     Jmp(Val),
     Je(Val),
     Jne(Val),
+    Jl(Val),
+    Jle(Val),
+    Jg(Val),
+    Jge(Val),
     Jo(Val),
     Push(Val),
     Pop(Val),
@@ -108,6 +113,7 @@ pub enum Expr {
     Loop(Box<Expr>),
     Break(Box<Expr>),
     Set(String, Box<Expr>),
+    TInit(Box<Expr>, Box<Expr>),
     TSet(Box<Expr>, Box<Expr>, Box<Expr>),
     TGet(Box<Expr>, Box<Expr>),
     Block(Vec<Expr>),
@@ -130,10 +136,20 @@ pub struct Program {
 }
 
 /// Location pointer type -- either register or stack memory
+#[allow(dead_code)]
 #[derive(Eq, Hash, Copy, Clone, PartialEq)]
 pub enum LocPtr {
     LReg(Reg),
     LStack(i32),
+}
+
+/// Value check types
+#[allow(dead_code)]
+pub enum ValCheck {
+    Integer,
+    Boolean,
+    Tuple,
+    Equality,
 }
 
 /// Context to an Expr that helps with compilation

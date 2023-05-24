@@ -1,0 +1,19 @@
+(fun (point x y)
+    (tuple x y)
+)
+
+(fun (addpoints pt1 pt2)
+    (tuple (+ (tget pt1 0) (tget pt2 0)) (+ (tget pt1 1) (tget pt2 1)) )
+)
+
+(let ((p1 (point 13 -51)) (p2 (point 79 24)) (p3 (point 14 -32)))
+    (block
+        (print p1)
+        (print p2)
+        (print p3)
+        (print (addpoints p1 p2))
+        (print (addpoints p1 p3))
+        (print (addpoints p2 p3))
+        (addpoints p1 (addpoints p2 p3))
+    )
+)

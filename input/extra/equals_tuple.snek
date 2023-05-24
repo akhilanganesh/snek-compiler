@@ -1,0 +1,3 @@
+(let ( (t (tuple 1 49 1897 true)) )
+    (= t (print (tset t 0 432375)))
+)
