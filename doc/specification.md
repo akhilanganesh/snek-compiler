@@ -1,4 +1,4 @@
-# Egg-Eater Specification
+# Specification
 
 Akhilan Ganesh, A15975349
 
@@ -14,7 +14,7 @@ and function calls.
 <expr> :=
   | <integer>
   | <boolean>
-  | <tuple>                     <-- new!
+  | <tuple>
   | input
   | <identifier>
   | (let (<binding>+) <expr>)
@@ -24,16 +24,16 @@ and function calls.
   | (loop <expr>)
   | (break <expr>)
   | (set! <identifier> <expr>)
-  | (tinit <expr:integer> <expr>)               <-- new!
-  | (tset <expr:tuple> <expr:integer> <expr>)   <-- new!
-  | (tget <expr:tuple> <expr:integer>)          <-- new!
+  | (tinit <expr:integer> <expr>)
+  | (tset <expr:tuple> <expr:integer> <expr>)
+  | (tget <expr:tuple> <expr:integer>)
   | (block <expr>+)
   | (<fname> <expr>*)
 
 <integer>    := (-)?[0-9]*
 <boolean>    := true | false
-<tuple>      := (tuple <expr>*)                     <-- new!
-<expr:[value]>  := <expr> that holds type [value]   <-- new!
+<tuple>      := (tuple <expr>*)
+<expr:[value]>  := <expr> that holds type [value]
 
 <op1> := add1 | sub1 | isnum | isbool | print
 <op2> := + | - | * | < | > | >= | <= | =
