@@ -152,6 +152,13 @@ pub enum ValCheck {
     Equality,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum TailContext {
+    Invalid,    // no tail calls here
+    Valid,      // tail call can be here
+    Loop,       // tail call can only be in a break expr
+}
+
 /// Context to an Expr that helps with compilation
 #[derive(Copy, Clone)]
 pub struct ExprContext<'a> {
@@ -160,5 +167,6 @@ pub struct ExprContext<'a> {
     pub loop_num : i32,                     // current loop identifier
     pub func_map : &'a HashMap<String,i32>, // function name map
     pub in_func : bool,                     // whether inside a function or not
+    pub tail : TailContext,                        // whether a tail call can occur within this expression
     // lbl : &'a mut i32,
 }

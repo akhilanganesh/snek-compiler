@@ -36,7 +36,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RBX, offset*WORD_SIZE), Val::Imm(vec.len() as i64)));
             offset += 1;
             for expr in vec {
-                instrs.append(&mut compile_expr(expr, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+                instrs.append(&mut compile_expr(expr, ExprContext { si: ctxt.si + 1, tail: TailContext::Invalid, ..ctxt }, lbl));
                 instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE)));
                 instrs.push(Instr::Mov(Val::MemPtr(Reg::RBX, offset*WORD_SIZE), Val::Reg(Reg::RAX)));
                 offset += 1;
@@ -64,7 +64,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // Unary operation performed and result moved to rax
         Expr::UnOp(op, e) => {
             // Compile inner expression into rax
-            instrs.append(&mut compile_expr(e, ctxt, lbl));
+            instrs.append(&mut compile_expr(e, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
 
             // If arithmetic, check for mismatch error
             if op.get_type() == Op1Type::Arithmetic {
@@ -115,10 +115,10 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // Binary operation performed and result moved to rax
         Expr::BinOp(op, e1, e2) => {
             // Compile inner expression 2 and push to stack
-            instrs.append(&mut compile_expr(e2, ctxt, lbl));
+            instrs.append(&mut compile_expr(e2, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
             // Compile inner expression 1 into rax
-            instrs.append(&mut compile_expr(e1, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+            instrs.append(&mut compile_expr(e1, ExprContext { si: ctxt.si + 1, tail: TailContext::Invalid, ..ctxt }, lbl));
             
             // If equality operation, compare types
             if op.get_type() == Op2Type::Equality {
@@ -197,7 +197,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             // For loop through all let bindings and evaluate each expression progressively
             for (id, expr) in binds {
                 let loc : LocPtr = LocPtr::LStack(-sii*WORD_SIZE);
-                instrs.append(&mut compile_expr(expr, ExprContext { si: sii, env: &new_env, ..ctxt }, lbl));
+                instrs.append(&mut compile_expr(expr, ExprContext { si: sii, env: &new_env, tail: TailContext::Invalid, ..ctxt }, lbl));
                 instrs.push(Instr::Mov(loc.value(), Val::Reg(Reg::RAX)));
                 new_env = new_env.update(id.to_string(), loc);
                 sii += 1;
@@ -212,7 +212,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             *lbl += 1;
             let else_lbl = format!("else_{}", block_num);
             let endif_lbl = format!("endif_{}", block_num);
-            instrs.append(&mut compile_expr(cond_e, ctxt, lbl));
+            instrs.append(&mut compile_expr(cond_e, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
             instrs.push(Instr::Cmp(Val::Reg(Reg::RAX), Val::Imm(FALSE_VAL)));
             instrs.push(Instr::Je(Val::Label(else_lbl.clone())));
             instrs.append(&mut compile_expr(e1, ctxt, lbl));
@@ -223,7 +223,8 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         },
         // Loop the inner expression infinitely
         Expr::Loop(e) => {
-            let new_ctxt = ExprContext { loop_num: *lbl, ..ctxt };
+            let tail_ctxt = if ctxt.tail == TailContext::Valid { TailContext::Loop } else { TailContext::Invalid };
+            let new_ctxt = ExprContext { loop_num: *lbl, tail: tail_ctxt, ..ctxt };
             *lbl += 1;
             let loop_lbl = format!("loop_{}", new_ctxt.loop_num);
             instrs.push(Instr::Label(Val::Label(loop_lbl.clone())));
@@ -235,7 +236,8 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // moved into rax
         Expr::Break(e) => {
             if ctxt.loop_num > 0 {
-                instrs.append(&mut compile_expr(e, ctxt, lbl));
+                let tail_ctxt = if ctxt.tail != TailContext::Invalid { TailContext::Valid } else { TailContext::Invalid };
+                instrs.append(&mut compile_expr(e, ExprContext { tail: tail_ctxt, ..ctxt }, lbl));
                 instrs.push(Instr::Jmp(Val::Label(format!("endloop_{}", ctxt.loop_num))));
             } else {
                 panic!("Invalid break outside of loop");
@@ -245,7 +247,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // moving rax into the corresponding stack address
         Expr::Set(s, e) => {
             if let Some(loc) = ctxt.env.get(s) {
-                instrs.append(&mut compile_expr(e, ctxt, lbl));
+                instrs.append(&mut compile_expr(e, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
                 instrs.push(Instr::Mov(loc.value(), Val::Reg(Reg::RAX)));
             } else {
                 panic!("Unbound variable identifier {}", s);
@@ -258,11 +260,11 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             *lbl += 1;
 
             // Compute default value
-            instrs.append(&mut compile_expr(e_value, ctxt, lbl));
+            instrs.append(&mut compile_expr(e_value, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Evaluate length expression
-            instrs.append(&mut compile_expr(e_length, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+            instrs.append(&mut compile_expr(e_length, ExprContext { si: ctxt.si + 1, tail: TailContext::Invalid, ..ctxt }, lbl));
 
             // Type check length
             instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
@@ -300,7 +302,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // Set a tuple's element at a certain index to a new expression value
         Expr::TSet(e_tuple, e_index, e_value) => {
             // Evaluate index
-            instrs.append(&mut compile_expr(e_index, ctxt, lbl));
+            instrs.append(&mut compile_expr(e_index, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
 
             // Perform type check for rax (index)
             instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
@@ -310,11 +312,11 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Evaluate value expression and store on stack
-            instrs.append(&mut compile_expr(e_value, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+            instrs.append(&mut compile_expr(e_value, ExprContext { si: ctxt.si + 1, tail: TailContext::Invalid, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -(ctxt.si+1)*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Store tuple in rax
-            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 2, ..ctxt }, lbl));
+            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 2, tail: TailContext::Invalid, ..ctxt }, lbl));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBX), Val::Reg(Reg::RAX)));
             
             // Perform type check for rax (tuple)
@@ -344,7 +346,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // Get a tuple's element at a certain index
         Expr::TGet(e_tuple, e_index) => {
             // Evaluate index
-            instrs.append(&mut compile_expr(e_index, ctxt, lbl));
+            instrs.append(&mut compile_expr(e_index, ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
 
             // Perform type check for rax (index)
             instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Integer, lbl));
@@ -354,7 +356,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, -ctxt.si*WORD_SIZE), Val::Reg(Reg::RAX)));
 
             // Store tuple in rax
-            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 1, ..ctxt }, lbl));
+            instrs.append(&mut compile_expr(e_tuple, ExprContext { si: ctxt.si + 1, tail: TailContext::Invalid, ..ctxt }, lbl));
 
             // Perform type check for rax (tuple)
             instrs.append(&mut check_msmx(Val::Reg(Reg::RAX), None, ValCheck::Tuple, lbl));
@@ -379,8 +381,12 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
         // A block of expressions each evaluated on its own, with the
         // value of the last expression moved to rax
         Expr::Block(exprs) => {
-            for e in exprs {
-                instrs.append(&mut compile_expr(e, ctxt, lbl));
+            for i in 0..exprs.len() {
+                if i != exprs.len() - 1 {
+                    instrs.append(&mut compile_expr(&exprs[i], ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
+                } else {
+                    instrs.append(&mut compile_expr(&exprs[i], ctxt, lbl));
+                }
             }
         },
         // A call to an internal Snek function, which requires
@@ -397,7 +403,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             let mut sii     = ctxt.si+offset;
             for e in exprs.iter().rev() {
                 let loc : LocPtr = LocPtr::LStack(-sii*WORD_SIZE);
-                instrs.append(&mut compile_expr(e, ExprContext { si: sii, ..ctxt }, lbl));
+                instrs.append(&mut compile_expr(e, ExprContext { si: sii, tail: TailContext::Invalid, ..ctxt }, lbl));
                 instrs.push(Instr::Mov(loc.value(), Val::Reg(Reg::RAX)));
                 sii += 1;
             }
@@ -427,7 +433,7 @@ fn compile_func(func: &Function, func_map: &HashMap<String,i32>, lbl: &mut i32) 
     instrs.push(Instr::Label(Val::Label(func.name.clone())));
 
     // Compile the inner expression
-    let ctxt = ExprContext { si: 1, env: &vars, loop_num: 0, func_map: &func_map , in_func: true };
+    let ctxt = ExprContext { si: 1, env: &vars, loop_num: 0, func_map: &func_map , in_func: true, tail: TailContext::Valid };
     instrs.append(&mut compile_expr(&func.body, ctxt, lbl));
 
     // ret instruction
@@ -455,7 +461,7 @@ pub fn compile(prog: &Program) -> (String, String) {
     }
     
     // Compile the main expression
-    let ctxt = ExprContext { si: 1, env: &HashMap::new(), loop_num: 0, func_map: &func_map, in_func: false };
+    let ctxt = ExprContext { si: 1, env: &HashMap::new(), loop_num: 0, func_map: &func_map, in_func: false, tail: TailContext::Valid };
     let main_instrs = compile_expr(&prog.main, ctxt, &mut lbl);
     
     // Convert each vector of instructions into Strings and return the tuple
