@@ -1,0 +1,16 @@
+(fun (isodd n)
+  (if (< n 0)
+      (isodd (- 0 n))
+      (if (= n 0)
+          false
+          (iseven (sub1 n) 0 0 0 0 0 0 0)
+      )
+  )
+)
+(fun (iseven n1 n2 n3 n4 n5 n6 n7 n8)
+  (if (= n1 0)
+      true
+      (isodd (sub1 n1))
+  )
+)
+(iseven 1000000001 0 0 0 0 0 0 0)

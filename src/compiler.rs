@@ -408,9 +408,10 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
                 sii += 1;
             }
             sii -= 1;
-            if ctxt.tail == TailContext::Valid && ctxt.in_func {
+            if ctxt.tail == TailContext::Valid && ctxt.in_func && exprs.len() <= ctxt.farity {
                 let mut arg_i : i32 = exprs.len().try_into().unwrap();
                 let diff : i32 = arg_i+ctxt.si+offset;    // arg_i here = exprs.len()
+
                 while arg_i > 0 {
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, (arg_i-diff)*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, arg_i*WORD_SIZE), Val::Reg(Reg::RAX)));
@@ -444,7 +445,8 @@ fn compile_func(func: &Function, func_map: &HashMap<String,i32>, lbl: &mut i32) 
     instrs.push(Instr::Label(Val::Label(func.name.clone())));
 
     // Compile the inner expression
-    let ctxt = ExprContext { si: 1, env: &vars, loop_num: 0, func_map: &func_map , in_func: true, tail: TailContext::Valid };
+    let ctxt = ExprContext { si: 1, env: &vars, loop_num: 0, func_map: &func_map, 
+                            in_func: true, tail: START_TAIL, farity: func.args.len() };
     instrs.append(&mut compile_expr(&func.body, ctxt, lbl));
 
     // ret instruction
@@ -472,7 +474,8 @@ pub fn compile(prog: &Program) -> (String, String) {
     }
     
     // Compile the main expression
-    let ctxt = ExprContext { si: 1, env: &HashMap::new(), loop_num: 0, func_map: &func_map, in_func: false, tail: TailContext::Valid };
+    let ctxt = ExprContext { si: 1, env: &HashMap::new(), loop_num: 0, func_map: &func_map, 
+                            in_func: false, tail: START_TAIL, farity: 0 };
     let main_instrs = compile_expr(&prog.main, ctxt, &mut lbl);
     
     // Convert each vector of instructions into Strings and return the tuple

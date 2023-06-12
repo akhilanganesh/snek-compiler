@@ -69,7 +69,7 @@ pub enum Op1Type {
 }
 
 /// Unary operators
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Op1 {
     Add1,
     Sub1,
@@ -87,7 +87,7 @@ pub enum Op2Type {
 }
 
 /// Binary operators
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Op2 {
     Plus,
     Minus,
@@ -100,7 +100,7 @@ pub enum Op2 {
 }
 
 /// Snek Expression Types
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Number(i64),
     Boolean(bool),
@@ -167,6 +167,6 @@ pub struct ExprContext<'a> {
     pub loop_num : i32,                     // current loop identifier
     pub func_map : &'a HashMap<String,i32>, // function name map
     pub in_func : bool,                     // whether inside a function or not
-    pub tail : TailContext,                        // whether a tail call can occur within this expression
-    // lbl : &'a mut i32,
+    pub tail : TailContext,                 // whether a tail call can occur within this expression
+    pub farity : usize                      // how many function arguments
 }

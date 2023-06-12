@@ -46,20 +46,6 @@ and function calls.
 Note that integers must be within the bounds $-2^{62}$ to $2^{62} - 1$. `input` refers to an optional
 argument provided at runtime of the Snek binary.
 
-### New Syntax
-
-1. The `tuple` construct. Declared above as `<tuple>`, the default instantiation of a tuple is of the form
-`(tuple <expr>*)`. This operation returns a tuple value that refers to contiguous heap-allocated data maintaining the order of the elements from left-to-right. Note that any expression type is possible, as well as a mix of different types (integers, booleans, tuples). These values are exactly stored as an element on the heap-allocated construct. Additionally, with this syntax the zero-length tuple can also be constructed, which has no elements.
-1. The `tinit` operation. This is the non-standard tuple instantiation operation, taking the form
-`(tinit <expr:integer> <expr>)`. Here the first expression represents the intended length of the tuple, and must be of type integer (which is runtime checked). The second expression is the intended default value to store as all elements of the tuple, and can be of any type. This operation returns a tuple that refers to contiguous heap-allocated data of the specified length and all elements of the specified default value.
-1. The `tset` operation. This is the tuple update operation, and is of the form 
-`(tset <expr:tuple> <expr:integer> <expr>)`. The first expression must be of type tuple (runtime checked) and stores the tuple value to update. The second expression is the index of the element to be updated, and must be of type integer (runtime checked). The last expression is the new value for the element, and can be of any type. This operation returns the same tuple (same heap-allocated data) but with an element changed.
-1. The `tget` operation. This is the tuple lookup operation, and is of the form 
-`(tget <expr:tuple> <expr:integer>)`. The first expression must be of type tuple (runtime checked) and stores the tuple value to lookup the element from. The second expression is the lookup index, and must be of type integer (runtime checked). This operation returns the value at the specified index for the specified tuple.
-1. An update to the `print` operation. This operation handles tuples by printing out each element of the tuple separated by commas and enclosed by parentheses. For example: `(1, 2, false, 4, (1, 2, 3))`.
-1. Updates to all runtime tag-checking so that tuples are treated as a separate value from integers and booleans. Tuples are considered invalid operands for some operations (like `+`).
-1. An update to the = operation. This operation checks equality between tuples solely by reference (no structural equality). Tuples cannot be compared to non-tuple values.
-
 ## Abstract Syntax
 
 The abstract syntax of Snek, parsed out of a .snek file and then compiled into instructions, is shown below. 
@@ -111,223 +97,222 @@ tuple        | 2 bits   | addr | 01
 true         | 2 bits   |  1   | 11
 false        | 2 bits   |  0   | 11
 
+## New Functionality: Safe-for-Space Tail Calls
+
+The latest functionality added to the compiler is safe-for-space tail call optimization. 
+
+First, whether or not an expression can have a tail call within is determined by a new expression
+context variable `tail`. The new `ExprContext` struct representing expression context is:
+
+```
+/// Context to an Expr that helps with compilation
+/// Context to an Expr that helps with compilation
+#[derive(Copy, Clone)]
+pub struct ExprContext<'a> {
+    pub si : i32,                           // current stack index
+    pub env : &'a HashMap<String, LocPtr>,  // variable environment
+    pub loop_num : i32,                     // current loop identifier
+    pub func_map : &'a HashMap<String,i32>, // function name map
+    pub in_func : bool,                     // whether inside a function or not
+    pub tail : TailContext,                 // whether a tail call can occur within this expression
+    pub farity : usize                      // how many function arguments
+}
+```
+
+where `TailContext` is:
+
+```
+#[derive(Copy, Clone, PartialEq)]
+pub enum TailContext {
+    Invalid,    // no tail calls here
+    Valid,      // tail call can be here
+    Loop,       // tail call can only be in a break expr
+}
+```
+
+The compiler sets all superexpressions (function expressions and main expressions) to have an expression
+context with `tail` set to `TailContext::Valid`. Even though the main expression also has `tail` set to
+valid, as we will see the compiler checks also that an expression is part of a function before performing
+tail call optimization.
+
+Some sub-expressions are such that function calls would not be tail calls. This includes all block sub-expressions except for the last, the conditional expression in an if expression, any sub-expressions in let-bindings, within loops (unless in a break expression), any sub-expression to unary or binary operations, and finally any sub-expression to the tuple operations. In these instances, the expression context passed in has `tail` set to `TailContext::Invalid`.
+
+An example of this is the new handling of `Expr::Block`:
+
+```
+Expr::Block(exprs) => {
+    for i in 0..exprs.len() {
+        if i != exprs.len() - 1 {
+            instrs.append(&mut compile_expr(&exprs[i], ExprContext { tail: TailContext::Invalid, ..ctxt }, lbl));
+        } else {
+            instrs.append(&mut compile_expr(&exprs[i], ctxt, lbl));
+        }
+    }
+},
+```
+
+Additionally, tail calls within loops poses a peculiar problem. Expressions within loops should not have
+tail calls unless it is a break expression AND the loop itself is the last evaluated expression of the
+function. This means that rather than have a tail call context that is binary, we need a tail call context
+that is ternary. The value `TailContext::Loop` is set on sub-expressions when a loop expression is the last
+evaluated expression of a function. When a break expression is compiled, if the tail context is for `Loop`
+(this implementation has a wider check of just not being `Invalid`), then its sub-expressions have
+`TailContext::Valid` for the tail context. This allows sub-expressions for break expressions to be
+recognized as tail calls.
+
+The implementation of `Expr::Loop` and `Expr::Break` is shown below:
+
+```
+Expr::Loop(e) => {
+    let tail_ctxt = if ctxt.tail == TailContext::Valid { TailContext::Loop } else { TailContext::Invalid };
+    let new_ctxt = ExprContext { loop_num: *lbl, tail: tail_ctxt, ..ctxt };
+    *lbl += 1;
+    let loop_lbl = format!("loop_{}", new_ctxt.loop_num);
+    instrs.push(Instr::Label(Val::Label(loop_lbl.clone())));
+    instrs.append(&mut compile_expr(e, new_ctxt, lbl));
+    instrs.push(Instr::Jmp(Val::Label(loop_lbl.clone())));
+    instrs.push(Instr::Label(Val::Label(format!("endloop_{}", new_ctxt.loop_num))));
+},
+Expr::Break(e) => {
+    if ctxt.loop_num > 0 {
+        let tail_ctxt = if ctxt.tail != TailContext::Invalid { TailContext::Valid } else { TailContext::Invalid };
+        instrs.append(&mut compile_expr(e, ExprContext { tail: tail_ctxt, ..ctxt }, lbl));
+        instrs.push(Instr::Jmp(Val::Label(format!("endloop_{}", ctxt.loop_num))));
+    } else {
+        panic!("Invalid break outside of loop");
+    }
+},
+```
+
+Lastly, of course, is the actual implementation of tail call optimization to be safe-for-space.
+Shown below is the code for `Expr::Call` handling. Look towards the last if/else expression.
+What occurs on a normal non-tail call basis is that argument values are pushed onto the stack
+(maintaining 16-byte alignment) past the stack pointer and other important values on the stack.
+Of course, these values are referenced directly from these positions as parameters to the next
+function once the function call occurs.
+
+However, for tail calls, once these stack values for new function arguments have been allocated,
+they are dynamically transferred back in the stack to reallocate the function space for the new
+function, thus preserving space overall.
+
+Note that function tail calls with a higher arity than the current function are not optimized,
+as this would cause issues with rewriting unrelated stack values.
+
+```
+Expr::Call(fname, exprs) => {
+    if let Some(n) = ctxt.func_map.get(fname) {
+        if *n != exprs.len() as i32 {
+            panic!("Incorrect number of function parameters for \'{}\'", fname);
+        }
+    } else {
+        panic!("Unknown function \'{}\'", fname);
+    }
+    let offset = if (exprs.len() as i32+ctxt.si) % 2 == 0 { 0 } else { 1 };
+    let mut sii     = ctxt.si+offset;
+    for e in exprs.iter().rev() {
+        let loc : LocPtr = LocPtr::LStack(-sii*WORD_SIZE);
+        instrs.append(&mut compile_expr(e, ExprContext { si: sii, tail: TailContext::Invalid, ..ctxt }, lbl));
+        instrs.push(Instr::Mov(loc.value(), Val::Reg(Reg::RAX)));
+        sii += 1;
+    }
+    sii -= 1;
+    if ctxt.tail == TailContext::Valid && ctxt.in_func {
+        let mut arg_i : i32 = exprs.len().try_into().unwrap();
+        let diff : i32 = arg_i+ctxt.si+offset;    // arg_i here = exprs.len()
+        while arg_i > 0 {
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, (arg_i-diff)*WORD_SIZE)));
+            instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, arg_i*WORD_SIZE), Val::Reg(Reg::RAX)));
+            arg_i -= 1;
+        }
+        instrs.push(Instr::Jmp(Val::Label(fname.clone())));
+    } else {
+        instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
+        instrs.push(Instr::Call(Val::Label(fname.clone())));
+        instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
+    }
+}
+```
+
 ## Heap-Allocated Data Diagram
 
-This diagram will be included as a `.jpg` on the repository.
-
+This diagram is located in `doc/heap-allocation.jpg`.
 
 ## Testing
 
-A number of tests were prepared and run with the Egg-Eater compiler. These tests are located in the `input` directory of the repo. They are also duplicated in the `tests` directory. Some extra tests beyond the specified ones are located in the `input/extra` directory, and these are also present in the `tests` directory.
+Three tests were prepared, showcasing safe-for-space tail calls. These tests are located in the `input` directory of the repo. They are also duplicated in the `tests` directory.
 
-### `simple_examples.snek`
+One can test non-safe-for-space tail calls by changing the `START_TAIL` constant on line 34 in `utils.rs` from `TailContext::Valid` to `TailContext::Invalid` before compiling any program with tail calls.
+
+### `tail1.snek` with Stack Diagram
 
 ```
-(block
-    (let ((t1 (tuple 1 2 3)) (t2 (tinit 5 false)) (t3 (tuple)))
+(fun (overflow n)
+    (if (<= n 1000000000)
+        (overflow (add1 n))
+        true
+    )
+)
+
+(overflow 0)
+```
+
+The above is a simple program featuring a self-recursive tail call implementation. The program will overflow the stack if tail calls are not memory optimized for the stack. When tail calls are safe for space, this program outputs `true`.
+
+A stack diagram showing the stack at each stage of this program is located in `doc/stack_tail_call.png`. It
+shows the stack right before the tail call, then during the tail call optimization, where function argument
+stack values are updated, and finally after the tail call returns, which shows how the tail call completely
+preserved stack space.
+
+<img src="stack_tail_call.png">
+
+### `tail2.snek`
+
+```
+(fun (isodd n)
+  (if (< n 0)
+      (isodd (- 0 n))
+      (if (= n 0)
+          false
+          (iseven (sub1 n))
+      )
+  )
+)
+(fun (iseven n)
+  (if (= n 0)
+      true
+      (isodd (sub1 n))
+  )
+)
+(iseven 1000000001)
+```
+
+This program features tail calls in functions that recursively call each other. It will overflow the stack if tail calls are not memory optimized for the stack. When tail calls are safe for space, this program outputs `false` since the number is not even.
+
+### `tail3.snek`
+
+```
+(fun (overflowloop n)
+    (if (> n 0)
         (block
-            (print t1)
-            (print t2)
-            (print t3)
-
-            (print (tset t2 0 true))
-            (print (tset t2 1 1))
-            (print (tget t1 1))
-        )
-    )
-
-    (tinit 0 0)
-)
-```
-
-This program includes a number of simple tests that implement correct tuple operations and print the results out. The first is the simple construction of tuples via `tuple` and `tinit`. These tuples are printed out after construction, also showing the result of a `print` operation on tuples. 
-
-This program also shows how the `tset` operation performs persistent updates to heap-allocated values by printing the results of the operation. The `tget` operation is also tested to lookup an element of a tuple.
-
-Finally, the construction of zero-length tuples are shown via the two possible methods: `(tuple)` and `(tinit 0 <expr>)`. These tuples are also printed out (as `()`).
-
-### `error-tag.snek`
-
-```
-(block
-    (print (= (tuple true 4 false) 4))
-    (print (+ (tuple) 4))
-    (print (add1 (tinit 0 0)))
-)
-```
-
-This program tests 3 different runtime tag-checking errors. To test each individually, each print statement should be isolated (the others temporarily removed).
-
-The first statement incorrectly uses the equals operation with a tuple and an integer. Since these two types have different tags, a runtime error results. The second statement incorrectly uses the `+` operation with a tuple, which is not allowed and results in a runtime error. The third statement incorrectly uses a unary operator (`add1`) on a tuple to confirm that tag-checking is consistent throughout all relevant operations. This statement too causes a runtime error.
-
-Note: More tag-checking errors are tested in `error3.snek`. These tag-checking errors are specific to the tuple operations rather than the non-tuple operations.
-
-### `error-bounds.snek`
-
-```
-(let ((t (tuple 54 43 32 21 10)))
-    (block
-        (print (tset t -1 0))
-        (print (tset t 5 1))
-        (print (tset t 8 false))
-
-        (print (tget t -1))
-        (print (tget t 5))
-        (print (tget t 8))
-
-        (print (tinit -1 0))
-    )
-)
-```
-
-This program shows seven statements that each cause a runtime out-of-bounds error. The first three test out-of-bounds with respect to the `tset` operation, showing that negative indices and indices greater than or equal to the tuple length cause an out-of-bounds error.
-
-The second three test out-of-bounds with respect to the `tget` operation, again showing that negative indices and indices greater than or equal to the tuple length cause an out-of-bounds error. This is consistent with the errors produced by `tset`.
-
-The last statement tests a specific case where `tinit` causes a runtime out-of-bounds error when specifying a negative length, as this would not produce a valid tuple.
-
-### `error3.snek`
-
-```
-(block
-    (print (tinit false 0))
-    (print (tget 0 1))
-    (print (tset false 1 2))
-    (print (tget (tuple 1 2 3) false 0))
-    (print (tset (tuple 1 2 3) (tuple 3 2 1)))
-    (print (tinit -1 0))
-
-    (tinit 0)
-    (tset)
-    (tget (tuple 1))
-)
-```
-
-This program tests tuple operation tag-checking/type errors and parsing errors. Each statement shows an incorrect argument type to each operation. The first argument for all `tinit` must be an integer or a runtime error will occur. The first argument for `tget` and `tset` must be a tuple reference value or a runtime error will occur. Lastly, the second argument for `tget` and `tset` must be an integer or a runtime error will occur.
-
-Three additional tests are included to show parsing errors related to these tuple operations.
-
-
-### `points.snek`
-
-```
-(fun (point x y)
-    (tuple x y)
-)
-
-(fun (addpoints pt1 pt2)
-    (tuple (+ (tget pt1 0) (tget pt2 0)) (+ (tget pt1 1) (tget pt2 1)) )
-)
-
-(let ((p1 (point 13 -51)) (p2 (point 79 24)) (p3 (point 14 -32)))
-    (block
-        (print p1)
-        (print p2)
-        (print p3)
-        (print (addpoints p1 p2))
-        (print (addpoints p1 p3))
-        (print (addpoints p2 p3))
-        (addpoints p1 (addpoints p2 p3))
-    )
-)
-```
-
-This program shows how abstract structures can be created via tuples. In this case, the structure created is a "point." This point is really a 2-tuple. The `point` function returns a point construct. The `addpoints` function adds two of these point constructs by adding their x and y coordinates. 
-
-These functions are tested by printing constructed points and the additions of these points together.
-
-### `bst.snek`
-
-```
-(fun (insert bst len val)
-    (let ((i 0))
-        (loop
-            (if (>= i len)
-                (break false)
-                (let ((get (tget bst i)))
-                    (if (isbool get)
-                        (block
-                            (tset bst i val)
-                            (break true)
-                        )
-                        (if (= get val)
-                            (break true)
-                            (if (< val get)
-                                (set! i (+ (* i 2) 1))
-                                (set! i (+ (* i 2) 2))
-                            )
-                        )
+            (let ((i 0))
+                (loop
+                    (if (< i 10)
+                        (set! i (add1 i))
+                        (break (overflowloop (sub1 n)))
                     )
                 )
             )
         )
+        true
     )
 )
-
-(fun (lookup bst len val)
-    (let ((i 0))
-        (loop
-            (if (>= i len)
-                (break false)
-                (let ((get (tget bst i)))
-                    (if (isbool get)
-                        (break false)
-                        (if (= val get)
-                            (break true)
-                            (if (< val get)
-                                (set! i (+ (* i 2) 1))
-                                (set! i (+ (* i 2) 2))
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-)
-
-(fun (newbst len)
-    (tinit len false)
-)
-
-(let ((len 20) (tree (newbst len)))
-    (block
-        (insert tree len 10)
-        (insert tree len 13)
-        (insert tree len 4)
-        (print tree)
-        (insert tree len 6)
-        (insert tree len 12)
-        (insert tree len 4)
-        (insert tree len -3)
-        (print tree)
-        (print (lookup tree len 3))
-        (print (lookup tree len 10))
-        (print (lookup tree len 12))
-        (print (lookup tree len -3))
-        tree
-    )
-)
+(overflowloop 99999999)
 ```
 
-This program tests whether a binary search tree implementation is possible within the Egg-Eater language specification. Indeed it is. Here the BST operations `new`, `insert`, and `lookup` are reproduced as Snek functions. 
-
-`newbst` initializes a new tuple with `false` values as a starting BST structure. `false` indicates an empty cell.
-
-`insert` loops through the BST structure, traversing it based on the arithmetic relation of the value to-be-inserted to each node's value in the BST, and moving "left" or "right" accordingly. Upon the first empty cell, the value is inserted. This function returns `true` if the insert operation succeeded and `false` otherwise. Note that if the BST has no space left, `false` is returned. Note also that duplicate values (found via an equality check with each node's value) are dropped, but `true` is returned.
-
-`lookup` loops through the BST structure similarly to `insert`. In this case however, we check each node's value for equality while traversing. If the lookup value and the node's value are equivalent, we return `true`. If the BST is searched completely according to the lookup value and an empty cell is found, then we return `false`. Here the boolean represents whether or not the lookup value exists in the BST.
-
-This program includes several statements that build up a BST via `insert` operations and prints the tree at various points. Additionally, we have statements that test `lookup` of the tree and print the results appropriately.
-
-## Similarities to Other Languages
-
-This Egg-Eater language specification implements tuples similarly to Golang tuples, in that Golang can construct tuples according via the same default construction (specifying each value separately). We can compare this also to Java arrays, in which this construction is not the default (even though such a construction is possible). Additionally Golang has get and set operations for tuples just like this specification. Java only provides array access with a square bracket syntax.
+This program showcases tail calls inside loops, which can only happen inside a `break` expression. This program will overflow the stack if tail calls are not memory optimized for the stack. When tail calls are safe for space, this program outputs `true`.
 
 ## Credits
 
-For implementing the BST: https://stackoverflow.com/questions/68281539/implementing-binary-search-tree-using-array-in-c
+No LLM was used. Stack overflow was not consulted.
 
-For assembly instruction reference: https://www.felixcloutier.com/x86/
-
-Additionally, EdStem posts helped me clarify some of the requirements for my Egg-Eater specification.
+The `mov` instruction was referenced from https://www.felixcloutier.com/x86/mov.

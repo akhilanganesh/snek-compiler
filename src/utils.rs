@@ -7,6 +7,7 @@
 use crate::types::*;
 
 // use std::fmt;
+use std::cmp::max;
 use std::collections::HashSet;
 
 /// limit to Snek integers (2^62)
@@ -29,6 +30,9 @@ pub const TRUE_VAL  : i64 = 7;
 
 /// false value representation (code + tag)
 pub const FALSE_VAL : i64 = 3;
+
+/// whether or not there should be tail call optimization
+pub const START_TAIL : TailContext = TailContext::Valid;
 
 lazy_static! {
     /// reserved words or keywords
@@ -268,4 +272,31 @@ pub fn is_valid_identifier(s: &str) -> bool {
         }
     }
     true
+}
+
+/// Gets the maximum function arity for an expression
+#[allow(dead_code)]
+pub fn get_max_func_arity(expr: Expr, max_arity: i32) -> i32 {
+    match expr {
+        Expr::Let(_, e) => {
+            get_max_func_arity(*e, max_arity)
+        },
+        Expr::If(_, e_then, e_else) => {
+            max(get_max_func_arity(*e_then, max_arity), get_max_func_arity(*e_else, max_arity))
+        },
+        Expr::Loop(e) => {
+            get_max_func_arity(*e, max_arity)
+        },
+        Expr::Break(e) => {
+            get_max_func_arity(*e, max_arity)
+        },
+        Expr::Block(list_e) => {
+            let e = &list_e[list_e.len()-1];
+            get_max_func_arity(e.clone(), max_arity)
+        },
+        Expr::Call(_, list_args) => {
+            max(max_arity, list_args.len().try_into().unwrap())
+        },
+        _ => max_arity
+    }
 }
