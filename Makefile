@@ -3,8 +3,8 @@ UNAME := $(shell uname)
 TEST := tests
 SRC  := src
 RT   := runtime
-P1   := grading
-P2   := self
+P1   := course
+P2   := main
 
 ifeq ($(UNAME), Linux)
 ARCH := elf64

@@ -3,7 +3,7 @@ use std::{
     process::Command,
 };
 
-pub(crate) enum TestKind {
+pub(crate) enum TestType {
     Success,
     RuntimeError,
     StaticError,
@@ -44,7 +44,7 @@ macro_rules! tests {
                 #[allow(unused_assignments, unused_mut)]
                 let mut input = None;
                 $(input = Some($input);)?
-                let kind = $crate::infra::TestKind::$kind;
+                let kind = $crate::infra::TestType::$kind;
                 $crate::infra::run_test(stringify!($name), $file, input, $expected, kind);
             }
         )*
@@ -56,13 +56,13 @@ pub(crate) fn run_test(
     file: &str,
     input: Option<&str>,
     expected: &str,
-    kind: TestKind,
+    kind: TestType,
 ) {
     let file = Path::new("tests").join(file);
     match kind {
-        TestKind::Success => run_success_test(name, &file, expected, input),
-        TestKind::RuntimeError => run_runtime_error_test(name, &file, expected, input),
-        TestKind::StaticError => run_static_error_test(name, &file, expected),
+        TestType::Success => run_success_test(name, &file, expected, input),
+        TestType::RuntimeError => run_runtime_error_test(name, &file, expected, input),
+        TestType::StaticError => run_static_error_test(name, &file, expected),
     }
 }
 
