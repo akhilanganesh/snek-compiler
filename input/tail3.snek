@@ -1,0 +1,16 @@
+(fun (overflowloop n)
+    (if (> n 0)
+        (block
+            (let ((i 0))
+                (loop
+                    (if (< i 10)
+                        (set! i (add1 i))
+                        (break (overflowloop (sub1 n)))
+                    )
+                )
+            )
+        )
+        true
+    )
+)
+(overflowloop 99999999)
