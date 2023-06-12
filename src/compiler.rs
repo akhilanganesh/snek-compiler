@@ -408,9 +408,20 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
                 sii += 1;
             }
             sii -= 1;
-            instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
-            instrs.push(Instr::Call(Val::Label(fname.clone())));
-            instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
+            if ctxt.tail == TailContext::Valid && ctxt.in_func {
+                let mut arg_i : i32 = exprs.len().try_into().unwrap();
+                let diff : i32 = arg_i+offset+1;    // arg_i here = exprs.len()
+                while arg_i > 0 {
+                    instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, (arg_i-diff)*WORD_SIZE)));
+                    instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, arg_i*WORD_SIZE), Val::Reg(Reg::RAX)));
+                    arg_i -= 1;
+                }
+                instrs.push(Instr::Jmp(Val::Label(fname.clone())));
+            } else {
+                instrs.push(Instr::Sub(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
+                instrs.push(Instr::Call(Val::Label(fname.clone())));
+                instrs.push(Instr::Add(Val::Reg(Reg::RSP), Val::Imm((sii*WORD_SIZE) as i64)));
+            }
         }
     }
     instrs
