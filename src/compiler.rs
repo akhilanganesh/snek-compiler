@@ -410,7 +410,7 @@ fn compile_expr(e: &Expr, ctxt : ExprContext, lbl: &mut i32) -> Vec<Instr> {
             sii -= 1;
             if ctxt.tail == TailContext::Valid && ctxt.in_func {
                 let mut arg_i : i32 = exprs.len().try_into().unwrap();
-                let diff : i32 = arg_i+offset+1;    // arg_i here = exprs.len()
+                let diff : i32 = arg_i+ctxt.si+offset;    // arg_i here = exprs.len()
                 while arg_i > 0 {
                     instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::MemPtr(Reg::RSP, (arg_i-diff)*WORD_SIZE)));
                     instrs.push(Instr::Mov(Val::MemPtr(Reg::RSP, arg_i*WORD_SIZE), Val::Reg(Reg::RAX)));
